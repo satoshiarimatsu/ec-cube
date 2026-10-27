@@ -25,7 +25,7 @@ git status
 
 ## Step 2: MEMORY.md を実際に更新
 
-**ファイル**: `/home/codespace/.claude/projects/-workspaces-my-live3-app/memory/MEMORY.md`
+**ファイル**: `/home/codespace/.claude/projects/-workspaces-ec-cube/memory/MEMORY.md`
 
 1. Read ツールで現在の内容を読む
 2. 以下の観点で Edit / Write ツールで**実際に書き換える**:
@@ -44,7 +44,7 @@ git status
 
 ## Step 3: PROGRESS.md を実際に更新
 
-**ファイル**: `/workspaces/my-live3-app/my-live3-app/PROGRESS.md`
+**ファイル**: `/workspaces/ec-cube/PROGRESS.md`
 
 1. Read ツールで現在の内容を読む
 2. Edit ツールで**実際に書き換える**:
