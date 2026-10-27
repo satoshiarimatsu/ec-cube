@@ -1,0 +1,6 @@
+{
+  // ターミナルで範囲選択した時点でクリップボードにコピーする
+  "terminal.integrated.copyOnSelection": true,
+  // 右クリック: 選択中ならコピー、未選択なら貼り付け
+  "terminal.integrated.rightClickBehavior": "copyPaste"
+}
