@@ -14,7 +14,8 @@
 - [ ] iken スキルを ec-cube 向けに書き換え（現状 `api/feedback.ts`・レシピ解析前提。フィードバック受付の仕組みを決めてから）
 - [x] (2026-10-30) `setup/initial-config` を push して PR 作成（#1）
 - [ ] investigate-feedback / resolve-feedback / triage-sentry の扱いを決める（`scripts/*.mjs` 前提で現状動かない → 削除 or ec-cube 向けに書き換え）
-- [ ] night-audit を PHP 向け（composer / phpunit 等）に書き換え
+- [x] (2026-10-30) night-audit を PHP 向け（composer / phpstan / php-cs-fixer / phpunit / bin/console）に書き換え
+- [ ] night-audit を EC-CUBE 導入後に実際に1回回し、コマンド・パスが通るか確認（MS1 の lint/テスト手順確立と合わせて）
 - [ ] CLAUDE.md の技術スタック・ディレクトリ構成を実態に合わせて確定
 
 ## MS1: 環境構築

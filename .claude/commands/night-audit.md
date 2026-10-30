@@ -1,13 +1,15 @@
 ---
-allowed-tools: Bash(npm run build*), Bash(npx tsc*), Bash(npx eslint*), Bash(npm run test*), Bash(npx vitest*), Bash(wc *), Bash(node *), Bash(git log*), Bash(git diff*), Bash(ls *), Read, Grep, Glob, Task, Write, Edit
-description: 寝ている間に自動実行するナイト監査 — ビルド・型・Lint・テスト・罠チェック・シミュレーションを全自動で実行し結果をMDに記録
+allowed-tools: Bash(composer validate*), Bash(composer audit*), Bash(composer outdated*), Bash(php -v*), Bash(php -l *), Bash(xargs -0 -n1 php -l*), Bash(php bin/console lint:*), Bash(php bin/console debug:router*), Bash(php bin/console doctrine:schema:validate*), Bash(php bin/console doctrine:migrations:status*), Bash(php bin/console doctrine:migrations:list*), Bash(vendor/bin/phpstan *), Bash(vendor/bin/php-cs-fixer fix --dry-run*), Bash(vendor/bin/phpunit*), Bash(wc *), Bash(find *), Bash(git log*), Bash(git diff*), Bash(git status*), Bash(git ls-files*), Bash(ls *), Bash(head *), Bash(tail *), Bash(grep *), Read, Grep, Glob, Task, Write, Edit
+description: 寝ている間に自動実行するナイト監査 — 構文・静的解析・Lint・テスト・罠チェック・シミュレーションを全自動で実行し結果をMDに記録
 ---
 
-# ナイト監査スキル（Night Audit）
+# ナイト監査スキル（Night Audit）— EC-CUBE 4 / PHP 版
 
 あなたは品質監査のエキスパートです。ユーザーが離席している間に、コードベース全体を自動で検査し、問題をすべて `docs/night-audit-report.md` に記録してください。
 
 **最重要ルール: コードの修正は一切行わない。検出と記録のみ。**
+
+**DB を変える操作は禁止**（CLAUDE.md 絶対ルール13）。`doctrine:migrations:migrate`・`doctrine:schema:update --force`・`doctrine:fixtures:load`・`eccube:install` などは実行しない。DB は「読む」コマンドだけを使う。対象はローカル開発 DB のみで、本番 DB には当てない。
 
 ---
 
@@ -25,6 +27,17 @@ description: 寝ている間に自動実行するナイト監査 — ビルド�
 実行ブランチ: <branch name>
 最終更新フェーズ: Phase X（進行中 or 完了）
 
+## 実行環境
+| 項目 | 結果 |
+|------|------|
+| PHP | 8.x.x |
+| EC-CUBE | 4.x.x（composer.lock の ec-cube/ec-cube、または src/Eccube/Common/Constant.php の VERSION） |
+| DB 接続 | OK / NG（NG なら DB 系チェックはスキップ） |
+
+## スキップしたチェック
+| チェック | 理由 |
+|----------|------|
+
 ## サマリー
 | 深刻度 | 件数 |
 |--------|------|
@@ -34,7 +47,7 @@ description: 寝ている間に自動実行するナイト監査 — ビルド�
 | LOW | X |
 | INFO | X |
 
-## Phase 1: ビルド・型・Lint・テスト
+## Phase 1: 構文・静的解析・Lint・テスト
 ...
 ## Phase 2: ...
 （以下フェーズごとに追記）
@@ -44,48 +57,96 @@ description: 寝ている間に自動実行するナイト監査 — ビルド�
 
 | 深刻度 | 基準 | 例 |
 |--------|------|----|
-| **CRITICAL** | 本番で即障害。データ損失・セキュリティ穴 | 認証バイパス、SQLインジェクション、削除APIに認可なし |
-| **HIGH** | 本番で機能不全。ユーザーが業務を遂行できない | ビルド失敗、型エラーでクラッシュ、テスト失敗 |
-| **MEDIUM** | 特定条件で問題発生。回避策あり | タイムゾーン表示ズレ、deleted_atフィルタ漏れ |
-| **LOW** | 品質低下だが機能は正常 | 500行超えファイル、TODO残留、未使用import |
+| **CRITICAL** | 本番で即障害。データ損失・セキュリティ穴 | 管理機能が admin ルート外に公開、SQLインジェクション、CSRF なしの削除処理 |
+| **HIGH** | 本番で機能不全。ユーザーが購入・運営できない | 構文エラー、DI コンテナが壊れている、テスト失敗、Entity とスキーマの不一致 |
+| **MEDIUM** | 特定条件で問題発生。回避策あり | タイムゾーン表示ズレ、在庫の同時購入、例外の握りつぶし |
+| **LOW** | 品質低下だが機能は正常 | 50行超え関数・500行超えクラス、TODO 残留、型宣言漏れ |
 | **INFO** | 推奨事項・参考情報 | パフォーマンス改善候補、リファクタ候補 |
+
+### 検査対象の範囲
+
+- **主対象**: `app/Customize/`、`app/Plugin/`（自作プラグインのみ）、`app/template/`、`app/config/eccube/`、`tests/` のうち独自テスト
+- **本体 `src/Eccube/`**: 中身の品質は監査しない。**変更されていないか**だけを Phase 3-1 で確認する
+- `vendor/`・`var/`・`html/bundle/` は対象外
 
 ---
 
 ## 実行手順
 
-### Phase 1: 基盤チェック（ビルド・型・Lint・テスト）
+### Phase 0: 前提確認
 
-`my-live3-app/` ディレクトリで以下を順番に実行する。
+リポジトリのルート（`/workspaces/ec-cube`）で実行する。
 
-#### 1-1. TypeScript 型チェック
 ```bash
-cd /workspaces/my-live3-app/my-live3-app && npx tsc --noEmit 2>&1
+php -v
+ls composer.json composer.lock bin/console vendor/autoload.php 2>&1
+ls phpstan.neon* .php-cs-fixer*.php phpunit.xml* codeception.yml 2>&1
+php bin/console doctrine:migrations:status 2>&1 | head -30
 ```
-- エラーがあれば全件記録（ファイル名:行番号、エラーメッセージ）
-- 深刻度: HIGH
 
-#### 1-2. ESLint
-```bash
-cd /workspaces/my-live3-app/my-live3-app && npx eslint app/ lib/ components/ hooks/ --format compact 2>&1
-```
-- エラー（error）は HIGH、警告（warning）はカテゴリ別に集計して LOW
-- タイムゾーン関連の違反（no-restricted-syntax）は MEDIUM に昇格
+- `composer.json` か `bin/console` が無い → EC-CUBE 未導入。Phase 1・5・6 の実行系をスキップし、grep 系（Phase 2〜4）だけを行う
+- `vendor/` が無い → `composer install` は**実行しない**（依存を変える操作のため）。実行系をスキップし「composer install が必要」と記録
+- 設定ファイル（phpstan.neon 等）が無いツールはスキップし、「スキップしたチェック」に理由を書く
+- `doctrine:migrations:status` が接続エラー → DB 接続 NG。DB 系チェック（1-6, 6-4）をスキップ
 
-#### 1-3. ビルド
-```bash
-cd /workspaces/my-live3-app/my-live3-app && npm run build 2>&1
-```
-- 失敗した場合: CRITICAL
-- 成功ならパス
+**スキップは失敗ではない。** ただし「何を検査していないか」がレポートで必ず分かるようにする。
 
-#### 1-4. テスト
+---
+
+### Phase 1: 基盤チェック（構文・静的解析・Lint・テスト）
+
+#### 1-1. composer.json の妥当性
 ```bash
-cd /workspaces/my-live3-app/my-live3-app && npx vitest run 2>&1
+composer validate --no-check-publish 2>&1
 ```
-- 失敗テストを全件記録（テスト名、ファイル名、エラーメッセージ）
-- 既知の失敗（pm-reminder.test.ts 2件、pm-undecided-check.test.ts 3件）は「既知」とマーク
-- 新規失敗は HIGH
+- エラーは HIGH、警告は LOW
+
+#### 1-2. PHP 構文チェック
+```bash
+find app/Customize app/Plugin -name '*.php' -print0 2>/dev/null | xargs -0 -n1 php -l 2>&1 | grep -v '^No syntax errors'
+```
+- 構文エラーは全件 HIGH
+
+#### 1-3. PHPStan
+```bash
+vendor/bin/phpstan analyse --no-progress --error-format=raw --memory-limit=1G 2>&1
+```
+- 設定ファイル（phpstan.neon / phpstan.neon.dist）の paths・level に従う。**設定は変更しない**
+- エラーを全件記録（ファイル:行、メッセージ）。深刻度: HIGH（型不一致・未定義メソッド）／ MEDIUM（その他）
+- 実行したレベルをレポートに書く
+
+#### 1-4. PHP-CS-Fixer（差分の確認のみ）
+```bash
+vendor/bin/php-cs-fixer fix --dry-run --diff 2>&1
+```
+- **`--dry-run` 必須**（付けないとファイルが書き換わる）
+- 違反ファイル数とルール別件数を集計。深刻度: LOW
+
+#### 1-5. Symfony の Lint
+```bash
+php bin/console lint:container 2>&1
+php bin/console lint:yaml app/config 2>&1
+php bin/console lint:twig app/template app/Customize app/Plugin 2>&1
+```
+- `lint:container` の失敗は CRITICAL（サイト全体が 500 になる）
+- YAML / Twig の構文エラーは HIGH
+
+#### 1-6. Entity とスキーマの整合（読み取りのみ・DB 接続 OK のとき）
+```bash
+php bin/console doctrine:schema:validate 2>&1
+```
+- Mapping の失敗は HIGH
+- Database の不一致は、Phase 6-4 で原因（未適用マイグレーション／マイグレーション漏れ）を切り分けてから深刻度を決める
+
+#### 1-7. テスト
+```bash
+vendor/bin/phpunit 2>&1 | tail -80
+```
+- 本体のテスト（tests/Eccube）まで含むと長時間かかる。phpunit.xml に独自テストのスイートがあればそれを優先し、全件は時間が許せば実行
+- 2分を超えそうなら Bash の `timeout` を延ばす（最大600000ms）か `run_in_background` で実行する
+- テストが DB を書き換える構成（テスト用 DB でない）なら実行せず、「スキップしたチェック」に記録
+- 失敗テストを全件記録（テスト名、ファイル名、エラーメッセージ）。新規失敗は HIGH
+- 既知の失敗は LESSONS.md / PROGRESS.md に記載があれば「既知」とマーク
 
 **→ Phase 1 完了後、レポートファイルに書き出して保存**
 
@@ -94,30 +155,43 @@ cd /workspaces/my-live3-app/my-live3-app && npx vitest run 2>&1
 ### Phase 2: セキュリティ監査
 
 #### 2-1. ハードコードされたシークレット
-以下のパターンを検索:
-- `password = "`, `secret = "`, `token = "`, `apiKey = "`, `api_key = "`
-- `Bearer ` + 固定文字列
-- `.env` に定義すべき値が直書きされていないか
+以下を `app/`・`html/`・`tests/` で検索:
+- `password' => '`, `'secret'`, `api_key`, `apiKey`, `token = '`, `Bearer ` + 固定文字列
+- `.env` がコミットされていないか（`git ls-files | grep -E '(^|/)\.env($|\.local)'`）。`.env.dist` 等の雛形は対象外
+- `APP_DEBUG=1` / `APP_ENV=dev` が本番向け設定に入っていないか
 - 深刻度: CRITICAL
 
-#### 2-2. 認証・認可チェック
-- `/app/api/` 配下の全ルートファイルを走査
-- `createClient` / `createRouteHandlerClient` の呼び出し後に `getUser()` / `getSession()` があるか
-- 認証なしで公開されているエンドポイントをリストアップ
-- 意図的に公開すべきもの（webhook等）以外は CRITICAL
+#### 2-2. 管理機能の公開範囲（認可）
+```bash
+php bin/console debug:router 2>&1
+```
+- `app/Customize/Controller/` と自作プラグインの Controller のルートを列挙する
+- 管理機能（データの更新・削除・CSV 出力・会員情報の閲覧）のルートが `%eccube_admin_route%` 配下にあるか。admin 配下でないと管理者ログインで守られない
+- マイページ系（会員のデータを扱う）で、ログイン会員と対象データの持ち主を照合しているか（URL の ID を書き換えて他人の受注を見られないか）
+- 深刻度: CRITICAL（認可なしで他人のデータ・管理機能に到達）／ HIGH（照合が片方だけ）
 
-#### 2-3. fetch の response.ok チェック
-- `fetch(` を使っている全箇所で `response.ok` または同等のチェックがあるか
-- 未チェック箇所は MEDIUM
+#### 2-3. CSRF（CLAUDE.md 絶対ルール6）
+- 状態を変える Controller のアクション（`methods={"POST"}`・`DELETE`・`PUT`、またはフォームの `handleRequest` で保存するもの）を列挙
+- フォームを使わない処理は `$this->isTokenValid()` を呼んでいるか
+- フォームを使う処理は FormType で `csrf_protection` を `false` にしていないか
+- Twig で POST するリンク（`token-for-anchor`）に `csrf_token_for_anchor()` が付いているか
+- GET リクエストでデータを変更していないか
+- 深刻度: CRITICAL（削除・更新に CSRF なし）／ HIGH（その他の状態変更）
 
-#### 2-4. SQL インジェクション / RPC の安全性
-- `.rpc(` 呼び出しで動的文字列を引数に渡していないか
-- テンプレートリテラルで SQL を組み立てていないか
+#### 2-4. SQL インジェクション
+- `->query(`, `executeQuery(`, `executeStatement(`, `createQuery(`, `->where(`, `->andWhere(` に、文字列連結（`.` ）や `"...$var..."` で外部入力を埋め込んでいる箇所
+- `setParameter()` を使わずに値を埋めている箇所
 - 深刻度: CRITICAL
 
-#### 2-5. XSS リスク
-- `dangerouslySetInnerHTML` の使用箇所と、入力のサニタイズ有無
-- 深刻度: CRITICAL（未サニタイズ）/ INFO（サニタイズ済み）
+#### 2-5. XSS（CLAUDE.md 絶対ルール5）
+- Twig の `|raw` の全使用箇所。理由コメント（`{# ... #}`）があるか、中身が外部入力（会員・商品名・問い合わせ本文など）由来でないか
+- `autoescape false` ブロック
+- PHP から HTML 文字列を組み立てて Twig に渡している箇所
+- 深刻度: CRITICAL（外部入力を raw 出力）／ MEDIUM（理由コメントなし）／ INFO（理由あり・安全）
+
+#### 2-6. ファイルアップロード
+- アップロード処理で拡張子・MIME の**許可リスト**があるか、保存先が `html/` 配下で PHP として実行されうる場所でないか
+- 深刻度: CRITICAL
 
 **→ Phase 2 完了後、レポートファイルに追記して保存**
 
@@ -125,70 +199,70 @@ cd /workspaces/my-live3-app/my-live3-app && npx vitest run 2>&1
 
 ### Phase 3: CLAUDE.md 絶対ルール準拠チェック
 
-CLAUDE.md の14の絶対ルールに対して、違反がないか総点検する。
+#### 3-1. 本体の直接編集（ルール1）
+```bash
+git log --oneline --format='%h %ad %s' --date=short -- src/Eccube | head -30
+git status --short -- src/Eccube
+```
+- EC-CUBE 本体の導入・バージョンアップ以外のコミットで `src/Eccube/` を変えているもの、未コミットの変更
+- 深刻度: HIGH（バージョンアップで消える／衝突する）
 
-#### 3-1. ファイルサイズ違反（ルール1）
-- `app/**/page.tsx`: 300行超えをリストアップ
-- その他の `.ts` / `.tsx`: 500行超えをリストアップ
-- 深刻度: LOW（ビルドは通るが品質ルール違反）
-
-#### 3-2. any / @ts-ignore 使用（ルール3）
-- `as any`, `: any`, `@ts-ignore`, `@ts-expect-error` を全検索
-- 深刻度: MEDIUM
-
-#### 3-3. タイムゾーン違反（ルール4）
-- `date-helpers.ts` と `business-day.ts` 以外で以下を検索:
-  - `.getDay()`, `.getDate()`, `.getMonth()`, `.getFullYear()`, `.getHours()`, `.getMinutes()`
-  - `new Date().toLocaleString()` / `toLocaleDateString()` で `timeZone` 指定なし
-  - `Date.now()` をそのまま日付計算に使用
-- 深刻度: MEDIUM
-
-#### 3-4. deleted_at フィルタ漏れ（ルール5）
-- Supabase の `.from("テーブル名")` を使った SELECT で `.is("deleted_at", null)` がないクエリ
-- `.single()` / `.maybeSingle()` を使っている箇所（同日2件問題のリスク）
-- 深刻度: MEDIUM（フィルタ漏れ）/ LOW（single問題）
-
-#### 3-5. TODO コメント残留（ルール8）
-- `// TODO`, `// FIXME`, `// HACK`, `// XXX` を全検索
+#### 3-2. 関数・クラスのサイズ（ルール2）
+- 50行を超えるメソッド、500行を超えるクラスファイルをリストアップ（対象は主対象の範囲のみ）
 - 深刻度: LOW
 
-#### 3-6. fetch response.ok 未チェック（ルール7）
-- Phase 2 の 2-3 と統合（重複なし）
+#### 3-3. 型宣言（ルール3）
+- 引数・戻り値・プロパティの型宣言が無いメソッド（コンストラクタの戻り値は除く）
+- `declare(strict_types=1);` が無いファイル
+- `@phpstan-ignore` / `@phpstan-ignore-line` / `@phpstan-ignore-next-line`、phpstan の baseline・`ignoreErrors` に独自コードが入っていないか
+- 深刻度: MEDIUM（ignore による握りつぶし）／ LOW（型宣言漏れ）
+
+#### 3-4. タイムゾーン（ルール4）
+- `date(`, `time()`, `strtotime(`, `mktime(`, `new \DateTime()`, `new \DateTimeImmutable()`, `date_default_timezone_set(` を検索
+- DB に保存する日時と表示用の日時を混同していないか。EC-CUBE は DB に UTC で保存し、表示時に `eccube_timezone`（Asia/Tokyo）へ変換する前提
+- Twig で `|date` にタイムゾーンを渡さず、UTC のまま表示していないか
+- 深刻度: MEDIUM
+
+#### 3-5. TODO コメント残留（ルール7）
+- `TODO`, `FIXME`, `HACK`, `XXX` を PHP / Twig / JS で全検索
+- 深刻度: LOW
+
+#### 3-6. 手作業の DDL（ルール9）
+- マイグレーション（`app/DoctrineMigrations/` 等）以外にある `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE` と `.sql` ファイル
+- 深刻度: MEDIUM
 
 **→ Phase 3 完了後、レポートファイルに追記して保存**
 
 ---
 
-### Phase 4: AI罠カタログ総点検
+### Phase 4: 罠パターン総点検
 
-`ai-trap-catalog.md` に記載された罠パターンをコードベースで実際に検索する。
+LESSONS.md のパターン索引に載っている罠をコードで検索する。加えて、以下の PHP / Doctrine 共通の罠を検索する。
 
-#### 4-1. async 戻り値の握りつぶし（罠2-1）
-- `await` の結果を変数に代入せず破棄している箇所
-- `const { error }` の後に `if (error)` チェックがない箇所
-- Supabase の `.insert()`, `.update()`, `.delete()`, `.upsert()` の戻り値未チェック
+#### 4-1. 例外の握りつぶし
+- 空の `catch` ブロック、`catch` でログだけ書いて成功扱いで続行している箇所
+- `catch (\Exception $e)` で広く捕まえて、利用者に成功メッセージを出している箇所
 - 深刻度: HIGH
 
-#### 4-2. .then().catch() パターン（罠2-3）
-- Supabase クエリで `.then()` / `.catch()` を使っている箇所
-- 深刻度: MEDIUM
-
-#### 4-3. includes() で認証判定（罠2-4）
-- `includes('Bearer')` や `includes('admin')` など、文字列部分一致で認証/認可判定している箇所
+#### 4-2. 保存漏れ・保存結果の未確認
+- `persist(` / `remove(` の後に `flush()` が無い経路
+- `flush()` 後に `addSuccess()`（成功フラッシュ）を出す前に、失敗時の `addError()` 経路があるか（完了の定義③）
 - 深刻度: HIGH
 
-#### 4-4. 文字列完全一致で認証（罠2-5）
-- `=== process.env.` で secret 比較している箇所（timing attack リスク）
-- 深刻度: MEDIUM
+#### 4-3. 緩い比較での判定
+- `in_array(` の第3引数 `true` なし、`==` / `!=` で ID・ステータス・金額を比較している箇所
+- secret・トークンを `===` で比較している箇所（`hash_equals()` を使うべき）
+- `strpos(` / `str_contains(` で権限・ロールを判定している箇所
+- 深刻度: HIGH（認可判定）／ MEDIUM（その他）
 
-#### 4-5. silent failure（罠2-8）
-- `return new Response(` / `return NextResponse.json(` で 200 を返しているが、直前にエラー条件がある箇所
-- early return でログを書いていない箇所
-- 深刻度: MEDIUM
-
-#### 4-6. 除外リスト方式（罠2-7）
-- パス除外の配列（`excludePaths`, `skipRoutes` 等）で制御しているロジック
+#### 4-4. 除外リスト方式（docs/coding-rules.md「許可リスト方式」）
+- 「〜以外は許可」の配列（`excludeRoutes`, `skipStatuses` 等）で制御しているロジック
 - 深刻度: LOW
+
+#### 4-5. 本体を壊す拡張
+- EventSubscriber / FormExtension で、本体の処理結果を黙って上書きしている箇所
+- Entity Trait（`@EntityExtension`）で追加した列に、マイグレーションが無いもの
+- 深刻度: MEDIUM
 
 **→ Phase 4 完了後、レポートファイルに追記して保存**
 
@@ -197,46 +271,40 @@ CLAUDE.md の14の絶対ルールに対して、違反がないか総点検す�
 ### Phase 5: ビジネスロジック・シミュレーション
 
 コードを読んで、以下のシナリオで問題が起きないかロジックを追跡する。
-**実際にAPIを叩くのではなく、コードリーディングによる机上シミュレーション。**
+**実際に画面を操作したり DB を書き換えたりせず、コードリーディングによる机上シミュレーション。**
 
-#### 5-1. 権限レベル別アクセスシミュレーション
-以下の6ロールそれぞれが主要画面にアクセスした場合のコードパスを追跡:
-- Lv.0（役員）、Lv.0.5（人事）、Lv.1A/1B（部門TOP）、Lv.2（課長）、Lv.3（一般）
+#### 5-1. 利用者別アクセスシミュレーション
+以下の利用者それぞれが、独自追加した画面・処理にアクセスした場合のコードパスを追跡:
+- 非会員（ゲスト購入含む）、会員、他の会員、管理者（権限設定 `Authority` 別）
 - 確認項目:
-  - 自分のデータのみ見えるべき人が他人のデータを見れる経路がないか
-  - 管理画面に一般ユーザーがURLを直打ちでアクセスできないか
-  - RLS ポリシーとフロントのガード（middleware/コンポーネント）の両方で防御されているか
-- 深刻度: CRITICAL（認可バイパス）/ HIGH（片方のみの防御）
+  - 会員が他の会員の受注・お届け先・お気に入りを ID 書き換えで見られないか
+  - 管理画面の URL を未ログイン・会員で直打ちしたときに弾かれるか
+  - 権限の狭い管理者が、メニューに無い機能を URL 直打ちで使えないか
+- 深刻度: CRITICAL（認可バイパス）／ HIGH（画面だけ隠して処理は通る）
 
 #### 5-2. タイムゾーン・シミュレーション
-以下の時間帯での動作をコード追跡:
-- **JST 0:00〜0:59**（UTC では前日）— 日付境界問題
-- **JST 9:30 前後** — 勤怠ロック時刻
-- **月末最終日 23:59** — 月次集計の境界
-- **年末年始（12/31〜1/1）** — 年度切替
-- 確認項目:
-  - サーバーサイド（UTC）とクライアント（JST）で日付がずれるケース
-  - cron ジョブの実行時刻と処理対象日の整合性
-- 深刻度: MEDIUM（表示ズレ）/ HIGH（計算ズレ）
+- **JST 0:00〜8:59**（UTC では前日）— 受注日・出荷日・日別集計の日付境界
+- **月末最終日 23:59** — 月次売上集計の境界
+- **年末年始（12/31〜1/1）** — 年をまたぐ集計・クーポン期限
+- **販売期間・クーポン期限の開始/終了時刻ちょうど**
+- 確認項目: DB（UTC）と表示（Asia/Tokyo）の変換漏れ、検索条件の日付を UTC に変換しているか
+- 深刻度: MEDIUM（表示ズレ）／ HIGH（集計・期限判定のズレ）
 
-#### 5-3. 休暇管理・同日共存シミュレーション
-`docs/leave-business-rules.md` のルールに基づき:
-- 出張と休日出勤が同日に存在するケース
-- 有給と代休が同日に申請されるケース（拒否されるべき）
-- 同一社員が同日に同じ leave_type を2回申請するケース
-- `.single()` / `.maybeSingle()` が使われている箇所の同日2件リスク
+#### 5-3. 購入フロー・在庫シミュレーション
+- 在庫1の商品を2人が同時に購入するケース（在庫がマイナスにならないか）
+- 購入確認後にカートや価格・送料・税率が変わるケース（確認画面と確定金額の不一致）
+- 決済失敗・ブラウザバック・二重送信のケース（受注の重複・在庫の二重引き当て）
+- 表示側と計算側で金額・送料・税・ポイントを別実装していないか（docs/coding-rules.md 4）
 - 深刻度: HIGH
 
 #### 5-4. 大量データ・シミュレーション
-- ページネーションなしで全件取得しているクエリ
-- `.select("*")` で全カラム取得している大量テーブルへのクエリ
-- N+1 クエリパターン（ループ内で Supabase クエリ）
-- 深刻度: MEDIUM（パフォーマンス）/ LOW（小規模データ）
+- `findAll()`・ページネーションなしの一覧、CSV 出力でのメモリ全件読み込み
+- ループ内で Repository を呼ぶ N+1、Twig 内での遅延ロードの連鎖
+- 深刻度: MEDIUM（パフォーマンス）／ LOW（小規模データ）
 
-#### 5-5. エラー時のUX シミュレーション
-- API が 500 を返した場合、フロントにエラーメッセージが表示されるか
-- ネットワークエラー時のフォールバック
-- Supabase の RLS で拒否された場合の挙動（空配列 vs エラー）
+#### 5-5. エラー時の UX シミュレーション
+- 保存失敗・バリデーションエラー・外部 API 失敗時に、フラッシュメッセージやフォームエラーが出るか（完了の定義③）
+- 500 エラー時に利用者向けのエラーページになるか、スタックトレースが出ないか
 - 深刻度: MEDIUM
 
 **→ Phase 5 完了後、レポートファイルに追記して保存**
@@ -246,40 +314,33 @@ CLAUDE.md の14の絶対ルールに対して、違反がないか総点検す�
 ### Phase 6: コードヘルス・メトリクス
 
 #### 6-1. 依存関係の健全性
-- `package.json` の依存パッケージで deprecated や脆弱性のあるもの（`npm audit` 相当）
-- 使われていない依存パッケージ
-- 深刻度: MEDIUM（脆弱性）/ INFO（未使用）
+```bash
+composer audit 2>&1
+composer outdated --direct 2>&1
+```
+- 脆弱性は深刻度に応じて CRITICAL / HIGH / MEDIUM
+- 大きく古いパッケージ、EC-CUBE 本体のパッチ版の遅れは INFO
+- `composer update` は**実行しない**
 
 #### 6-2. 重複コードの検出
-- 同じロジックが3箇所以上にコピーされている箇所
-- 同じ Supabase クエリパターンの重複
+- 同じロジックが3箇所以上にコピーされている箇所（Controller・Service・Twig）
+- 同じ QueryBuilder の組み立ての重複
 - 深刻度: INFO
 
 #### 6-3. テストカバレッジ概況
-- テストファイルがない主要モジュール
-- `lib/` 配下でテストなしの重要ロジック
-- `app/api/` 配下でテストなしのエンドポイント
-- 深刻度: INFO
+- テストが無い `app/Customize/` の Service・Repository・Controller
+- 金額・在庫・権限に関わるのにテストが無いもの
+- 深刻度: INFO（金額・在庫・権限は MEDIUM）
 
-#### 6-4. DB と実装の食い違い（黙って失敗する書き込み）
-
+#### 6-4. マイグレーションと DB の食い違い（読み取りのみ・DB 接続 OK のとき）
 ```bash
-node scripts/audit-silent-failures.mjs
+php bin/console doctrine:migrations:status 2>&1
+php bin/console doctrine:migrations:list 2>&1
 ```
-
-読み取り専用。本番 DB と突き合わせて以下を出す（LESSONS A-16 / A-17 の自動検出）:
-
-- コードが `.from("X")` で触っているのに**本番に存在しないテーブル** → **CRITICAL**
-  （INSERT は 42P01、SELECT は「0件」として黙って通る。`error` を握り潰していれば誰も気づかない）
-- `docs/db-design.md` に載っているのに本番に無いテーブル → MEDIUM（**ドキュメントは適用の証拠にならない**）
-- 「人が結果を見ない書き込み」（audit_logs 等）が直近N日で0件 → HIGH
-- 本番にあるがコードもドキュメントも触れないテーブル → INFO
-
-**この検査は lint / tsc / テストでは代替できない。**コードは正しく、DB と食い違っているだけなので、
-静的検査はすべて緑になる。必ず本番 DB に当てること。
-
-CRITICAL が出たら、そのテーブルを触るコード経路が**生きているか**（画面から到達できるか）を
-必ず確認してから深刻度を決める。デッドコードなら LOW、画面から使われているなら CRITICAL。
+- 未適用のマイグレーション → MEDIUM（ローカルが古いだけか、本番にも未適用かは区別できないので「ローカル DB では未適用」と書く）
+- 1-6 で Database の不一致があり、それを埋めるマイグレーションが無い → HIGH（Entity だけ変えてマイグレーションを書き忘れている）
+- `docs/db-design.md` に載っているのにマイグレーションも Entity も無いテーブル → MEDIUM（ドキュメントは適用の証拠にならない）
+- **差分を埋める SQL を実行しない。** `doctrine:schema:update` は `--dump-sql` で見るだけでも使わない（`--force` との打ち間違いを防ぐため）
 
 **→ Phase 6 完了後、レポートファイルに追記して保存**
 
@@ -296,7 +357,7 @@ CRITICAL が出たら、そのテーブルを触るコード経路が**生きて
 深刻度・影響範囲・修正難易度を考慮して、修正すべき順にランキング。
 各項目に以下を記載:
 - **問題の概要**
-- **影響範囲**: どの機能・何人のユーザーに影響するか
+- **影響範囲**: どの機能・どの利用者（購入者／会員／管理者）に影響するか
 - **修正難易度**: 簡単 / 中程度 / 複雑
 - **関連ファイル**: 修正が必要なファイルパス一覧
 - **推奨修正方針**: 具体的にどう直すべきか（コードは書かない、方針のみ）
@@ -307,14 +368,15 @@ CRITICAL が出たら、そのテーブルを触るコード経路が**生きて
 ```
 | 機能領域 | CRITICAL | HIGH | MEDIUM | LOW | リスクレベル |
 |----------|----------|------|--------|-----|------------|
-| 認証・認可 | X | X | X | X | 🔴/🟡/🟢 |
-| 勤怠管理 | ... |
-| 休暇管理 | ... |
-| 日報 | ... |
-| 1on1 | ... |
-| 通知 | ... |
+| 認証・認可（会員/管理者） | X | X | X | X | 🔴/🟡/🟢 |
+| 商品・在庫 | ... |
+| カート・購入フロー | ... |
+| 決済 | ... |
+| 受注・出荷 | ... |
+| 会員・マイページ | ... |
+| メール | ... |
 | 管理画面 | ... |
-| cron ジョブ | ... |
+| プラグイン | ... |
 ```
 
 #### 7-4. 次のアクション提案
@@ -331,7 +393,7 @@ CRITICAL が出たら、そのテーブルを触るコード経路が**生きて
 
 1. **各フェーズ完了ごとに必ずレポートファイルを保存する**（途中クラッシュ対策）
 2. **並列実行を活用する**: Phase 2〜4 の grep 系チェックは Task エージェントを使って並列実行する
-3. **タイムアウト対策**: ビルドやテストが長い場合は適切な timeout を設定する
+3. **タイムアウト対策**: PHPStan・テストが長い場合は適切な timeout を設定する
 4. **誤検知の除外**: テストファイル内のパターンや、意図的な例外（コメントで明記されたもの）は別カウントする
 5. **再実行可能**: 途中で停止した場合、「最終更新フェーズ」から再開できるようにする
-6. **開発は一切しない**: コードの修正・ファイルの追加（レポート以外）は絶対に行わない
+6. **開発は一切しない**: コードの修正・ファイルの追加（レポート以外）は絶対に行わない。`composer install/update`・`cache:clear`・マイグレーション実行もしない
