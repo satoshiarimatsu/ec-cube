@@ -12,7 +12,7 @@
 - [x] (2026-10-30) `.claude/skills/` を導入: intent・ship（`shiono-a11y/sss-tool01`）、iken（`satoshiarimatsu/my-first-app`）。my-live3-app には skills なし。intent は EC-CUBE 向けに文言調整済み
 - [ ] ship スキルを ec-cube 向けに書き換え（現状 Vercel・`my-app/scripts/ship-check.ts`・hooks・SST の LESSON 番号前提で動かない。デプロイ先・lint/テスト手順の確定後）
 - [ ] iken スキルを ec-cube 向けに書き換え（現状 `api/feedback.ts`・レシピ解析前提。フィードバック受付の仕組みを決めてから）
-- [ ] `setup/initial-config` を push して PR 作成（ユーザーが手動実行）
+- [x] (2026-10-30) `setup/initial-config` を push して PR 作成（#1）
 - [ ] investigate-feedback / resolve-feedback / triage-sentry の扱いを決める（`scripts/*.mjs` 前提で現状動かない → 削除 or ec-cube 向けに書き換え）
 - [ ] night-audit を PHP 向け（composer / phpunit 等）に書き換え
 - [ ] CLAUDE.md の技術スタック・ディレクトリ構成を実態に合わせて確定
