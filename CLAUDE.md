@@ -81,3 +81,4 @@ tests/               → テストファイル
 | 引継ぎ / ハンドオフ / セッション終了 / 次のチャットへ / 閉じる準備 / handoff / 引き継ぎ | `handoff` |
 | Sentry / エラー分析 / triage-sentry / Sentryチェック / 本番エラー / 障害チェック | `triage-sentry` |
 | 穴チェック / 穴ある？ / 抜け漏れチェック / 修正の品質確認 / hole-check / 修正レビュー | `hole-check` |
+| 作る前に整理 / 意図をまとめて / 要件をまとめて / intent（migration・社外に届く変更・新機能/画面の実装前は必須） | `intent` |
